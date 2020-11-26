@@ -81,6 +81,7 @@ trait HasLazyRoCC extends CanHavePTW { this: BaseTile =>
   nDCachePorts += roccs.size
 }
 
+
 trait HasLazyRoCCModule extends CanHavePTWModule
     with HasCoreParameters { this: RocketTileModuleImp with HasFpuOpt =>
 
@@ -116,6 +117,91 @@ trait HasLazyRoCCModule extends CanHavePTWModule
   } else {
     (None, None)
   }
+}
+
+class ExampleAccel (opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC(opcodes) {
+  override lazy val module = new ExampleAccelModuleImp(this)
+}
+
+@chiselName
+class ExampleAccelModuleImp(outer: ExampleAccel)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
+with HasCoreParameters {
+
+  val addr_reg    = Reg(chiselTypeOf(io.cmd.bits.rs1))
+  val rs2_reg     = Reg(chiselTypeOf(io.cmd.bits.rs2))
+  val rd_reg      = Reg(chiselTypeOf(io.cmd.bits.inst.rd))
+  val funct_reg   = Reg(chiselTypeOf(io.cmd.bits.inst.funct))
+  val data_reg    = Reg(chiselTypeOf(io.resp.bits.data))
+
+	val s_idle :: s_req :: s_resp :: s_store :: Nil = Enum(4) 
+  val state = RegInit(s_idle)
+  // eimai ready na dextw entoli mono stin idle
+  io.cmd.ready := (state === s_idle)
+
+  when (io.cmd.fire()){
+    printf(p"\n got command \n")
+    addr_reg  := io.cmd.bits.rs1
+    rs2_reg   := io.cmd.bits.rs2
+    rd_reg    := io.cmd.bits.inst.rd
+    funct_reg := io.cmd.bits.inst.funct
+
+    when((io.cmd.bits.inst.funct === 1.U)){
+      printf(p"\n once DOLOAD\n")
+      state := s_req
+    }.elsewhen(io.cmd.bits.inst.funct === 0.U){
+      printf(p"\n once DOSTORE\n")
+      state := s_store
+    }
+  } 
+
+  when((state === s_req )){
+    printf(p"\n state $state: send request to mem with addr $addr_reg , rd $rd_reg ,funct $funct_reg \n")
+    io.mem.req.valid      := (state === s_req)  
+    io.mem.req.bits.addr  := addr_reg
+    io.mem.req.bits.tag   := 0.U
+    io.mem.req.bits.cmd   := M_XRD // perform a load (M_XWR for stores)
+    io.mem.req.bits.size  := log2Ceil(8).U
+    io.mem.req.bits.signed:= false.B 
+    io.mem.req.bits.phys  := false.B
+    state                 := s_resp
+  }
+
+  when(state === s_store ){
+    printf(p"\n state $state: store value of rs2 $rs2_reg , addr $addr_reg , funct $funct_reg \n")
+    io.mem.req.valid      := (state === s_store) 
+    io.mem.req.bits.addr  := addr_reg
+    io.mem.req.bits.tag   := 2.U
+    io.mem.req.bits.cmd   := M_XWR // perform a store (M_XRD for load)
+    io.mem.req.bits.size  := log2Ceil(8).U
+    io.mem.req.bits.signed:= false.B
+    io.mem.req.bits.phys  := false.B
+    io.mem.req.bits.data  := rs2_reg
+    state                 := s_resp
+  }
+
+	when(io.mem.resp.valid){
+		val dataa   = io.mem.resp.bits.data
+    val ad      = io.mem.resp.bits.addr
+    val tg      = io.mem.resp.bits.tag
+    val hd      = io.mem.resp.bits.has_data
+    val cm      = io.mem.resp.bits.cmd
+    val sz      = io.mem.resp.bits.size
+    printf(p"memresp: data $dataa ,tag $tg ,address $ad ,has $hd ,cmd $cm ,size $sz \n") 
+    io.resp.valid       := ((state === s_resp) && (io.mem.resp.bits.has_data))
+    io.resp.bits.rd     := rd_reg
+    io.resp.bits.data   := io.mem.resp.bits.data
+
+    //when memory response is due to store request 
+    when(!io.mem.resp.bits.has_data){
+      state := s_idle 
+    }
+  }
+  // when i have valid data for core with response interface 
+  when(io.resp.fire()){
+    state := s_idle 
+  }
+
+  io.interrupt := false.B
 }
 
 class AccumulatorExample(opcodes: OpcodeSet, val n: Int = 4)(implicit p: Parameters) extends LazyRoCC(opcodes) {
