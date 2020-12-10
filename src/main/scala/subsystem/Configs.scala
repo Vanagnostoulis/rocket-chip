@@ -288,8 +288,20 @@ class WithRoccAccumulator extends Config((site, here, up) => {
     Seq(
       (p: Parameters) => 
       {
-          val accumulator = LazyModule(new AccumulatorExample(OpcodeSet.custom2, n = 4)(p))
-          accumulator
+        val accumulator = LazyModule(new AccumulatorExample(OpcodeSet.custom2, n = 4)(p))
+        accumulator
+      }
+    )
+  }
+)
+
+class WithRoccCounter extends Config((site, here, up) => {
+  case BuildRoCC => 
+    Seq(
+      (p: Parameters) =>
+      {
+        val counter = LazyModule(new CharacterCountExample(OpcodeSet.custom3)(p))
+        counter
       }
     )
   }

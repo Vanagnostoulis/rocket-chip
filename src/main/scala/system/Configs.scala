@@ -36,7 +36,7 @@ class DualChannelDualBankConfig extends Config(
   new WithNMemoryChannels(2) ++
   new WithNBanks(4) ++ new DefaultConfig)
 
-class RoccExampleConfig extends Config(new WithRoccAccumulator ++ new WithRoccTranslator ++ new DefaultConfig)
+class RoccExampleConfig extends Config(new WithRoccAccumulator ++ new WithRoccTranslator ++ new WithRoccCounter ++ new DefaultConfig)
 
 class MyConfig extends Config(new WithMyAccel ++ new DefaultConfig)
 class FirstConfig extends Config(new WithMyAccel ++ new RoccExampleConfig)
