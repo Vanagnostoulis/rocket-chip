@@ -329,7 +329,17 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   val s_idle :: s_acq :: s_gnt :: s_check :: s_resp :: Nil = Enum(5)
   val state = RegInit(s_idle)
 
+  // 6.8 and 9.1 in chipyard  
+  //Inside your lazy module implementation, you can call node.out to get a list
+  //of bundle/edge pairs. If you used the TLHelper, you only specified a single
+  //client edge, so this list will only have one pair.
   val (tl_out, edgesOut) = outer.atlNode.out(0)
+  
+  // The tl bundle is a Chisel hardware bundle that connects to the IO of this
+  // module. It contains two (in the case of TL-UL and TL-UH) or five (in the
+  // case of TL-C) decoupled bundles corresponding to the TileLink channels.
+  // This is what you should connect your hardware logic to in order to actually
+  // send/receive TileLink messages.
   val gnt = tl_out.d.bits
   val recv_data = Reg(UInt(cacheDataBits.W))
   val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
