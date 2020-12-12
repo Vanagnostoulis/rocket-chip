@@ -131,7 +131,6 @@ with HasCoreParameters {
   val funct_reg   = Reg(chiselTypeOf(io.cmd.bits.inst.funct))
   val addr_reg    = Reg(chiselTypeOf(io.mem.req.bits.addr))
   val mem_data    = Reg(chiselTypeOf(io.mem.resp.bits.data))
-
   val s_idle :: s_mem_req :: s_mem_resp :: s_resp :: Nil = Enum(4) 
   val state = RegInit(s_idle)
 
@@ -313,16 +312,26 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   with HasCoreParameters
   with HasL1CacheParameters {
   val cacheParams = tileParams.icache.get
-
   private val blockOffset = blockOffBits
-  private val beatOffset = log2Up(cacheDataBits/8)
+  // blockoffbits = lgCacheBlockBytes = 6
+  // cacheDataBits = beatbytes * 8 = 64 
+  // beatOffset = 3 (?)
+  printf(p"ela");
+  printf(p"INFO cacheDataBeats $cacheDataBeats coreMaxAddrBits $coreMaxAddrBits cacheDataBits $cacheDataBits blockOffBits $blockOffBits rowBits $rowBits\n");
+  printf(p"INFO cacheBlockBytes $cacheBlockBytes lgCacheBlockBytes $lgCacheBlockBytes vpnBits $vpnBits ppnBits $ppnBits\n");
+  printf(p"INFO vpnBitsExtended $vpnBitsExtended vaddrBitsExtended $vaddrBitsExtended\n");
 
+  private val beatOffset = log2Up(cacheDataBits/8)
   val needle = Reg(UInt(8.W))
   val addr = Reg(UInt(coreMaxAddrBits.W))
   val count = Reg(UInt(xLen.W))
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
 
+  // coreMaxAddrBits = 56
   val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
+  // addr_block = addr(55,6)  
+  // offset = addr(5,0)
+  // next_addr = ((addr(55,6)) +1) << 6 
   val offset = addr(blockOffset - 1, 0)
   val next_addr = (addr_block + 1.U) << blockOffset.U
 
@@ -340,14 +349,27 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   // case of TL-C) decoupled bundles corresponding to the TileLink channels.
   // This is what you should connect your hardware logic to in order to actually
   // send/receive TileLink messages.
+  
+  /* 
+  An AcquireBlock message is a request message type used by a Master Agent with a cache to
+  obtain a copy of a block of data that it plans to cache locally
+
+  A Grant message is both a response and a request message used by a Slave Agent to acknowledge 
+  the receipt of a Acquire and provide permissions to access the cache block to the original requesting Master Agent
+  */
   val gnt = tl_out.d.bits
+  // recv_data = 64.W
+  // recv_beat = log2(1+1) = 1.W 
   val recv_data = Reg(UInt(cacheDataBits.W))
   val recv_beat = RegInit(0.U(log2Up(cacheDataBeats+1).W))
-
+  // data bytes (recdata(7,0),recdata(15,8),recdata(23,16),...,recdata(63,56))
   val data_bytes = VecInit(Seq.tabulate(cacheDataBits/8) { i => recv_data(8 * (i + 1) - 1, 8 * i) })
   val zero_match = data_bytes.map(_ === 0.U)
   val needle_match = data_bytes.map(_ === needle)
   val first_zero = PriorityEncoder(zero_match)
+  //  Returns the bit position of the least-significant high bit of the input bitvector. "b0110"esults in 1.U
+
+
 
   val chars_found = PopCount(needle_match.zipWithIndex.map {
     case (matches, i) =>
@@ -369,6 +391,11 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   tl_out.d.ready := (state === s_gnt)
 
   when (io.cmd.fire()) {
+    printf(p"GOT \n")
+//    printf(p"INFO: blockOffset $blockOffset beatOffset $beatOffset cacheDataBits $cacheDataBits coreMaxAddrBits $coreMaxAddrBits , \n")
+    //printf(p"INFO: addr_block $addr_block next_addr $next_addr offset $offset cacheDataBeats $cacheDataBeats\n")
+//    printf(p"INFO: data_bytes $data_bytes  \n")
+ //   printf(p"INFO: chars_found $chars_found  \n")
     addr := io.cmd.bits.rs1
     needle := io.cmd.bits.rs2
     resp_rd := io.cmd.bits.inst.rd
@@ -377,15 +404,20 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
     state := s_acq
   }
 
+  // otan steilw ACQUIRE message sto tilelink perimenw gia GRANT sto D channel
   when (tl_out.a.fire()) { state := s_gnt }
-
+  
+  // otan parw apantisi GRANT apo to D channel kanw save ta data
   when (tl_out.d.fire()) {
     recv_beat := recv_beat + 1.U
     recv_data := gnt.data
     state := s_check
   }
-
+  // chekarw an exw diavasei mideniko opou teleiwnw to treksimo
+  // alliws 
   when (state === s_check) {
+//	printf(p"CHECK: data_bytes $data_bytes  \n")
+//    printf(p"CHECK: chars_found $chars_found  \n")
     when (!finished) {
       count := count + chars_found
     }
