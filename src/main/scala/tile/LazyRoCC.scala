@@ -316,10 +316,9 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   // blockoffbits = lgCacheBlockBytes = 6
   // cacheDataBits = beatbytes * 8 = 64 
   // beatOffset = 3 (?)
-  printf(p"ela");
-  printf(p"INFO cacheDataBeats $cacheDataBeats coreMaxAddrBits $coreMaxAddrBits cacheDataBits $cacheDataBits blockOffBits $blockOffBits rowBits $rowBits\n");
-  printf(p"INFO cacheBlockBytes $cacheBlockBytes lgCacheBlockBytes $lgCacheBlockBytes vpnBits $vpnBits ppnBits $ppnBits\n");
-  printf(p"INFO vpnBitsExtended $vpnBitsExtended vaddrBitsExtended $vaddrBitsExtended\n");
+  //printf(p"INFO cacheDataBeats $cacheDataBeats coreMaxAddrBits $coreMaxAddrBits cacheDataBits $cacheDataBits blockOffBits $blockOffBits rowBits $rowBits\n");
+  //printf(p"INFO cacheBlockBytes $cacheBlockBytes lgCacheBlockBytes $lgCacheBlockBytes vpnBits $vpnBits ppnBits $ppnBits\n");
+  //printf(p"INFO vpnBitsExtended $vpnBitsExtended vaddrBitsExtended $vaddrBitsExtended\n");
 
   private val beatOffset = log2Up(cacheDataBits/8)
   val needle = Reg(UInt(8.W))
