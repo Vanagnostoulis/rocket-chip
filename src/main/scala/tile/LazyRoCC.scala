@@ -126,12 +126,13 @@ class ExampleAccel (opcodes: OpcodeSet)(implicit p: Parameters) extends LazyRoCC
 @chiselName
 class ExampleAccelModuleImp(outer: ExampleAccel)(implicit p: Parameters) extends LazyRoCCModuleImp(outer)
 with HasCoreParameters {
+  val rs1_reg     = Reg(chiselTypeOf(io.cmd.bits.rs1))
   val rs2_reg     = Reg(chiselTypeOf(io.cmd.bits.rs2))
   val rd_reg      = Reg(chiselTypeOf(io.cmd.bits.inst.rd))
-  val funct_reg   = Reg(chiselTypeOf(io.cmd.bits.inst.funct))
-  val addr_reg    = Reg(chiselTypeOf(io.mem.req.bits.addr))
   val mem_data    = Reg(chiselTypeOf(io.mem.resp.bits.data))
-  val s_idle :: s_mem_req :: s_mem_resp :: s_resp :: Nil = Enum(4) 
+  val next_addr   = Reg(chiselTypeOf(io.mem.req.bits.addr))
+
+  val s_idle :: s_mem_req_load :: s_mem_resp_load :: s_mem_req_store :: s_mem_resp_store :: s_resp :: Nil = Enum(6)
   val state = RegInit(s_idle)
 
   // eimai ready na dextw entoli mono stin idle
@@ -139,47 +140,62 @@ with HasCoreParameters {
 
   // otan erthei entoli pare auta pou xreiazomai 
   when (io.cmd.fire()){
-    addr_reg  := io.cmd.bits.rs1
+    rs1_reg   := io.cmd.bits.rs1
     rs2_reg   := io.cmd.bits.rs2
     rd_reg    := io.cmd.bits.inst.rd
-    funct_reg := io.cmd.bits.inst.funct
-    state     := s_mem_req
+    next_addr := io.cmd.bits.rs1(39,0) //first address is in rs1. rs1->64, addr-> 40 bits 
+    
+    when(io.cmd.bits.inst.funct === 0.U){
+      state := s_mem_req_load
+    }.elsewhen(io.cmd.bits.inst.funct === 1.U){
+      state := s_mem_req_store
+    }
+  }
+ 
 
-  }
-  // when a send a request to memory wait for response 
-  when (io.mem.req.fire()){ 
-    printf(p"send request with add $addr_reg rs2 $rs2_reg func $funct_reg cmd ${io.mem.req.bits.cmd}\n")
-    state := s_mem_resp 
-  }
-  // when for a load request 
-  when (state === s_mem_resp && io.mem.resp.valid && io.mem.resp.bits.has_data){ 
-    printf(p"return from load request with add $addr_reg rs2 $rs2_reg func $funct_reg\n")
-    mem_data := io.mem.resp.bits.data
-    state    := s_resp 
-  }.elsewhen (state === s_mem_resp && io.mem.resp.valid && !io.mem.resp.bits.has_data){ 
-    printf(p"return from store request with add $addr_reg rs2 $rs2_reg func $funct_reg\n")
-    state    := s_idle
-  }
+  when(io.resp.fire()) { state := s_idle }
   
-  when (io.resp.fire()) { 
-    printf(p"response to core with load req add $addr_reg rs2 $rs2_reg func $funct_reg\n")
-    state := s_idle 
+  // response from a request, must care of OOO responses
+  when(io.mem.resp.valid){
+    when (state ===s_mem_resp_load){
+      state := s_mem_req_load
+      next_addr := next_addr + 8.U
+      printf(p"INFO:load  resp address 0x${Hexadecimal(next_addr)}  state $state data ${io.mem.resp.bits.data}\n")
+    }
+    when (state === s_mem_resp_store){
+      state := s_mem_req_store
+      next_addr:= next_addr + 8.U //go to the next element and change it
+      printf(p"INFO:store resp address 0x${Hexadecimal(next_addr)}  state $state data ${io.mem.resp.bits.data}\n")
+    }
+    when (next_addr === rs2_reg ) { state := s_resp } 
   }
 
-  io.mem.req.valid      := (state === s_mem_req)
-  io.mem.req.bits.addr  := addr_reg
-  io.mem.req.bits.tag   := addr_reg(4,0) //maybe find another way for tagging
-  io.mem.req.bits.cmd   := Mux(funct_reg === 1.U, M_XRD, M_XWR)
+  // when a send a request to memory wait for response 
+  when(io.mem.req.fire()){ 
+    when (state === s_mem_req_load){
+      state := s_mem_resp_load
+      printf(p"INFO:load  req  address 0x${Hexadecimal(io.mem.req.bits.addr)}  state $state data ${io.mem.req.bits.data}\n")
+    }
+    when (state === s_mem_req_store){
+      state := s_mem_resp_store    
+      printf(p"INFO:store req  address 0x${Hexadecimal(io.mem.req.bits.addr)}  state $state data ${io.mem.req.bits.data}\n")
+    }
+  }
+ 
+  io.resp.valid     := (state === s_resp) 
+  io.resp.bits.data := 1.U
+  io.resp.bits.rd   := rd_reg
+
+  io.mem.req.valid      := ((state === s_mem_req_load) || (state === s_mem_req_store))
+  io.mem.req.bits.addr  := next_addr
+  io.mem.req.bits.tag   := Mux( state === s_mem_req_load, 0.U , 1.U) //maybe find another way for tagging
+  io.mem.req.bits.cmd   := Mux( state === s_mem_req_load, M_XRD, M_XWR) 
   io.mem.req.bits.size  := log2Ceil(8).U
   io.mem.req.bits.signed:= false.B 
   io.mem.req.bits.phys  := false.B
-  io.mem.req.bits.data  := Mux(funct_reg === 1.U, 0.U, rs2_reg)
+  io.mem.req.bits.data  := Mux( state === s_mem_req_load, 0.U,  4.U)
 
-
-  io.resp.valid       := (state === s_resp)
-  io.resp.bits.rd     := rd_reg
-  io.resp.bits.data   := mem_data
-
+  io.busy := (state =/= s_idle)
   io.interrupt := false.B
  }
 
@@ -316,19 +332,15 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   // blockoffbits = lgCacheBlockBytes = 6
   // cacheDataBits = beatbytes * 8 = 64 
   // beatOffset = 3 (?)
-  //printf(p"INFO cacheDataBeats $cacheDataBeats coreMaxAddrBits $coreMaxAddrBits cacheDataBits $cacheDataBits blockOffBits $blockOffBits rowBits $rowBits\n");
-  //printf(p"INFO cacheBlockBytes $cacheBlockBytes lgCacheBlockBytes $lgCacheBlockBytes vpnBits $vpnBits ppnBits $ppnBits\n");
-  //printf(p"INFO vpnBitsExtended $vpnBitsExtended vaddrBitsExtended $vaddrBitsExtended\n");
-
   private val beatOffset = log2Up(cacheDataBits/8)
   val needle = Reg(UInt(8.W))
   val addr = Reg(UInt(coreMaxAddrBits.W))
   val count = Reg(UInt(xLen.W))
   val resp_rd = Reg(chiselTypeOf(io.resp.bits.rd))
 
-  // coreMaxAddrBits = 56
+  // coreMaxAddrBits = 40
   val addr_block = addr(coreMaxAddrBits - 1, blockOffset)
-  // addr_block = addr(55,6)  
+  // addr_block = addr(39,6)  
   // offset = addr(5,0)
   // next_addr = ((addr(55,6)) +1) << 6 
   val offset = addr(blockOffset - 1, 0)
@@ -390,7 +402,6 @@ class CharacterCountExampleModuleImp(outer: CharacterCountExample)(implicit p: P
   tl_out.d.ready := (state === s_gnt)
 
   when (io.cmd.fire()) {
-    printf(p"GOT \n")
 //    printf(p"INFO: blockOffset $blockOffset beatOffset $beatOffset cacheDataBits $cacheDataBits coreMaxAddrBits $coreMaxAddrBits , \n")
     //printf(p"INFO: addr_block $addr_block next_addr $next_addr offset $offset cacheDataBeats $cacheDataBeats\n")
 //    printf(p"INFO: data_bytes $data_bytes  \n")

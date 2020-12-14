@@ -39,7 +39,6 @@ class DualChannelDualBankConfig extends Config(
 class RoccExampleConfig extends Config(new WithRoccAccumulator ++ new WithRoccTranslator ++ new WithRoccCounter ++ new DefaultConfig)
 
 class MyConfig extends Config(new WithMyAccel ++ new DefaultConfig)
-class FirstConfig extends Config(new WithMyAccel ++ new RoccExampleConfig)
 
 class HeterogeneousTileExampleConfig extends Config(
   new WithTraceGen (n = 2, overrideMemOffset = Some(0x90000000L))() ++
