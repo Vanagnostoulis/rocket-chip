@@ -96,6 +96,9 @@ class DCacheTLBPort(implicit p: Parameters) extends CoreBundle()(p) {
 @chiselName
 class DCacheModule(outer: DCache) extends HellaCacheModule(outer) {
   val tlb_port = IO(new DCacheTLBPort)
+  //printf("DCACH beatOffBits %d , cacheDataBeats %d , coreMaxAddrBits %d , blockOffBits %d,  cacheDataBits %d, rowBits %d\n" ,beatOffBits , cacheDataBeats  ,coreMaxAddrBits ,blockOffBits, cacheDataBits ,rowBits);
+  //printf("DCACH vaddrBits %d ,cacheBlockBytes %d, lgCacheBlockBytes %d , vpnBits %d,  ppnBits %d\n",vaddrBits ,cacheBlockBytes , lgCacheBlockBytes ,vpnBits, ppnBits);
+  //printf("DCACH cacheDataBytes %d , paddrBits %d , vpnBitsExtended %d ,  vaddrBitsExtended %d, beatBytes %d , beatWords %d\n",cacheDataBytes, paddrBits ,vpnBitsExtended ,vaddrBitsExtended, beatBytes , beatWords);
 
   val tECC = cacheParams.tagCode
   val dECC = cacheParams.dataCode
