@@ -131,10 +131,14 @@ with HasCoreParameters {
   val rd_reg      = Reg(chiselTypeOf(io.cmd.bits.inst.rd))
   val mem_data    = Reg(chiselTypeOf(io.mem.resp.bits.data))
   val next_addr   = Reg(chiselTypeOf(io.mem.req.bits.addr))
+  
+  // fix width of inner_addr and size of Mem to support more
+  val inner_addr  = RegInit(0.U(7.W))
+  val inner_mem   = Mem(256, UInt(xLen.W)) // i think SyncReadMem needs 1cc delay to get the output in mem_data
 
-  val s_idle :: s_mem_req_load :: s_mem_resp_load :: s_mem_req_store :: s_mem_resp_store :: s_resp :: Nil = Enum(6)
+  val s_idle :: s_mem_req_load :: s_mem_resp_load :: s_mem_req_store :: s_mem_resp_store :: s_resp :: s_read_inner :: Nil = Enum(7)
   val state = RegInit(s_idle)
-
+  
   // eimai ready na dextw entoli mono stin idle
   io.cmd.ready := (state === s_idle)
 
@@ -143,38 +147,48 @@ with HasCoreParameters {
     rs1_reg   := io.cmd.bits.rs1
     rs2_reg   := io.cmd.bits.rs2
     rd_reg    := io.cmd.bits.inst.rd
-    next_addr := io.cmd.bits.rs1(39,0) //first address is in rs1. rs1->64, addr-> 40 bits 
-    
+    next_addr := io.cmd.bits.rs1(39,0) //first address is in rs1. rs1->64, mem.addr-> 40 bits 
+   
+    inner_addr := io.cmd.bits.rs1(9,3)
+
     when(io.cmd.bits.inst.funct === 0.U){
       state := s_mem_req_load
     }.elsewhen(io.cmd.bits.inst.funct === 1.U){
       state := s_mem_req_store
+    }.elsewhen(io.cmd.bits.inst.funct === 2.U){
+      state := s_read_inner
     }
   }
- 
+
+  when(state === s_read_inner){
+    //printf(p"INFO pame gia read stin inner_addr $inner_addr me ${inner_mem(inner_addr)} read ${inner_mem.read(inner_addr)} ${inner_mem(106)} \n")
+    mem_data := inner_mem.read(inner_addr)
+    state    := s_resp
+  }
 
   when(io.resp.fire()) { state := s_idle }
   
   // response from a request, must care of OOO responses
   when(io.mem.resp.valid){
-    when (state ===s_mem_resp_load){
-      state := s_mem_req_load
-      next_addr := next_addr + 8.U
-      printf(p"INFO:load  resp address 0x${Hexadecimal(next_addr)}  state $state data ${io.mem.resp.bits.data}\n")
+    when (state === s_mem_resp_load){
+      inner_mem.write( (next_addr(9,3)) , io.mem.resp.bits.data)
+      state       :=   s_mem_req_load
+      printf(p"INFO:load  resp address 0x${Hexadecimal(next_addr)} | ${next_addr(9,3)} state $state data ${io.mem.resp.bits.data}\n")
+      next_addr   := next_addr + 8.U
     }
     when (state === s_mem_resp_store){
-      state := s_mem_req_store
+      state    := s_mem_req_store
       next_addr:= next_addr + 8.U //go to the next element and change it
-      printf(p"INFO:store resp address 0x${Hexadecimal(next_addr)}  state $state data ${io.mem.resp.bits.data}\n")
+     //printf(p"INFO:store resp address 0x${Hexadecimal(next_addr)}  state $state data ${io.mem.resp.bits.data}\n")
     }
-    when (next_addr === rs2_reg ) { state := s_resp } 
+    when (next_addr === rs2_reg ) { state := s_resp }  //end of matrix give a respone to let him know we are done 
   }
 
-  // when a send a request to memory wait for response 
+  // when I send a request to memory wait for response 
   when(io.mem.req.fire()){ 
     when (state === s_mem_req_load){
       state := s_mem_resp_load
-      printf(p"INFO:load  req  address 0x${Hexadecimal(io.mem.req.bits.addr)}  state $state data ${io.mem.req.bits.data}\n")
+      //printf(p"INFO:load  req  address 0x${Hexadecimal(io.mem.req.bits.addr)}        state $state data ${io.mem.req.bits.data}\n")
     }
     when (state === s_mem_req_store){
       state := s_mem_resp_store    
@@ -183,7 +197,7 @@ with HasCoreParameters {
   }
  
   io.resp.valid     := (state === s_resp) 
-  io.resp.bits.data := 1.U
+  io.resp.bits.data := mem_data 
   io.resp.bits.rd   := rd_reg
 
   io.mem.req.valid      := ((state === s_mem_req_load) || (state === s_mem_req_store))
@@ -193,7 +207,7 @@ with HasCoreParameters {
   io.mem.req.bits.size  := log2Ceil(8).U
   io.mem.req.bits.signed:= false.B 
   io.mem.req.bits.phys  := false.B
-  io.mem.req.bits.data  := Mux( state === s_mem_req_load, 0.U,  4.U)
+  io.mem.req.bits.data  := Mux( state === s_mem_req_load, 0.U, (inner_mem(next_addr(9,3)) + 4.U) )
 
   io.busy := (state =/= s_idle)
   io.interrupt := false.B
